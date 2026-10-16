@@ -1,0 +1,2462 @@
+{
+	"info": {
+		"name": "Ride Hailing Demo",
+		"description": "Sequential demo of the ride-hailing API at http://localhost:8080.\n\nSelect the Ride Hailing Local environment before sending requests.\nRun the folders from A through D. Each request depends on IDs captured from earlier responses.\n\nReset before every full run, and before repeating folder D:\n1. Stop the Spring Boot process.\n2. Start it again with .\\mvnw.cmd spring-boot:run.\nRestart clears the in-memory H2 database and the 5-minute surge window.\nThere is no reset endpoint.\n\nSurge demand is every booking attempt in the last 5 minutes inside the 5 km matching radius, including the current attempt.\nSupply is the number of available drivers inside that radius before one is claimed.\nRatio below 2 is 1.00, ratio from 2 up to but not including 4 is 1.25, ratio 4 or more is 1.50.\nEach surge band uses its own pickup area, more than 5 km from the others.\nFare checks multiply the pre-surge tiered fare by the surgeMultiplier in the end-ride response, then apply the coupon.\nThey do not assume a surged rupee amount.\n\nFolder D's last request does not race two bookings. Run ConcurrentRideBookingTest for the concurrency demonstration.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "userAId",
+			"value": ""
+		},
+		{
+			"key": "userBId",
+			"value": ""
+		},
+		{
+			"key": "userCId",
+			"value": ""
+		},
+		{
+			"key": "hatchbackDriverId",
+			"value": ""
+		},
+		{
+			"key": "hatchbackCabId",
+			"value": ""
+		},
+		{
+			"key": "sedanDriverId",
+			"value": ""
+		},
+		{
+			"key": "sedanCabId",
+			"value": ""
+		},
+		{
+			"key": "happyRideId",
+			"value": ""
+		},
+		{
+			"key": "happyFinalFare",
+			"value": ""
+		},
+		{
+			"key": "heldRideId",
+			"value": ""
+		},
+		{
+			"key": "minimumFareRideId",
+			"value": ""
+		},
+		{
+			"key": "upgradeRideId",
+			"value": ""
+		},
+		{
+			"key": "surge100RideId",
+			"value": ""
+		},
+		{
+			"key": "surge125RideId",
+			"value": ""
+		},
+		{
+			"key": "surge150RideId",
+			"value": ""
+		},
+		{
+			"key": "surgeCouponRideId",
+			"value": ""
+		},
+		{
+			"key": "surgePrimeRideId",
+			"value": ""
+		}
+	],
+	"item": [
+		{
+			"name": "A. BASIC SETUP",
+			"description": "Create three users, one hatchback, one sedan, move the hatchback to the happy-path pickup, and create SAVE20. Restart the app before running this folder again. Coupon codes are unique, so a second create returns 400.",
+			"item": [
+				{
+					"name": "A1 Confirm the application is up",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/health",
+						"description": "Existing health check. Expected 200 and status UP. Start the app with .\\mvnw.cmd spring-boot:run before this request."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"status is UP\", function () {",
+									"  pm.expect(pm.response.json().status).to.eql(\"UP\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A2 Register user Asha",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/users",
+						"description": "Sample body registers the rider used for the happy path. Expected 201 with id, name, and phone. The id is stored as userAId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Asha\",\n  \"phone\": \"9100000001\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.expect(body.name).to.eql(\"Asha\");",
+									"pm.expect(body.phone).to.eql(\"9100000001\");",
+									"remember(\"userAId\", body.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A3 Register user Meera",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/users",
+						"description": "Second rider, used for the conflicting booking. Expected 201. Stored as userBId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Meera\",\n  \"phone\": \"9100000002\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"userBId\", pm.response.json().id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A4 Register user Ravi",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/users",
+						"description": "Third rider, used for later isolated bookings. Expected 201. Stored as userCId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Ravi\",\n  \"phone\": \"9100000003\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"userCId\", pm.response.json().id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A5 Register hatchback driver",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/drivers",
+						"description": "Registers Kiran with a hatchback at 12.90, 77.50, which is outside the later pickup radius. Drivers start available. Expected 201. Stores hatchbackDriverId and hatchbackCabId from cab.id.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Kiran\",\n  \"phone\": \"9100000101\",\n  \"carType\": \"HATCHBACK\",\n  \"latitude\": 12.90,\n  \"longitude\": 77.50\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"driver starts available with a hatchback\", function () {",
+									"  pm.expect(body.available).to.eql(true);",
+									"  pm.expect(body.cab.carType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(body.cab.driverId).to.eql(body.id);",
+									"});",
+									"remember(\"hatchbackDriverId\", body.id);",
+									"remember(\"hatchbackCabId\", body.cab.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A6 Register sedan driver",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/drivers",
+						"description": "Registers Neha with a sedan at 18.00, 77.60, far outside the 5 km happy-path radius. Expected 201. Stores sedanDriverId and sedanCabId. The sedan is moved only in the free-upgrade step.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Neha\",\n  \"phone\": \"9100000102\",\n  \"carType\": \"SEDAN\",\n  \"latitude\": 18.00,\n  \"longitude\": 77.60\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"driver starts available with a sedan\", function () {",
+									"  pm.expect(body.available).to.eql(true);",
+									"  pm.expect(body.cab.carType).to.eql(\"SEDAN\");",
+									"});",
+									"remember(\"sedanDriverId\", body.id);",
+									"remember(\"sedanCabId\", body.cab.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A7 Update hatchback cab location",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{hatchbackCabId}}/location",
+						"description": "Moves Kiran to the happy-path pickup 12.9716, 77.5946. Expected 200 with the new latitude and longitude. This is the only cab inside that 5 km area.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 12.9716,\n  \"longitude\": 77.5946\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"cab is at the happy-path pickup\", function () {",
+									"  pm.expect(body.carType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(Math.abs(body.latitude - 12.9716)).to.be.below(0.000001);",
+									"  pm.expect(Math.abs(body.longitude - 77.5946)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "A8 Create coupon SAVE20",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/coupons",
+						"description": "Creates a 20 percent coupon. The code is stored uppercase. Expected 201 with code SAVE20. A second create in the same process returns 400 because the code is unique. Restart the app to create it again.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"code\": \"SAVE20\",\n  \"discountPercentage\": 20\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"coupon is SAVE20 at 20 percent\", function () {",
+									"  pm.expect(body.code).to.eql(\"SAVE20\");",
+									"  pm.expect(Number(body.discountPercentage)).to.eql(20);",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "B. MAIN HAPPY PATH",
+			"description": "One hatchback is inside the pickup radius and this is the first request there, so demand/supply is 1/1 and the stored multiplier is 1.00. The 7 km hatchback tiered fare is Rs 54.00 before surge. With multiplier 1.00 the end response keeps that fare.",
+			"item": [
+				{
+					"name": "B1 Book hatchback ride",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Books Asha at the hatchback's coordinates. Expected 201. requestedCarType, assignedCarType, and pricingCarType are HATCHBACK. status is ONGOING. driverId matches hatchbackDriverId. Stored as happyRideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 12.9716,\n  \"pickupLongitude\": 77.5946,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"nearest hatchback is assigned and priced as a hatchback\", function () {",
+									"  pm.expect(body.driverId).to.eql(Number(pm.collectionVariables.get(\"hatchbackDriverId\")));",
+									"  pm.expect(body.requestedCarType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(body.assignedCarType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(body.pricingCarType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(body.status).to.eql(\"ONGOING\");",
+									"});",
+									"remember(\"happyRideId\", body.rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "B2 Verify driver assignment",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/drivers/{{hatchbackDriverId}}",
+						"description": "Expected 200. available is false while the ride is ongoing. cab.carType remains HATCHBACK."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"assigned driver is unavailable\", function () {",
+									"  pm.expect(body.id).to.eql(Number(pm.collectionVariables.get(\"hatchbackDriverId\")));",
+									"  pm.expect(body.available).to.eql(false);",
+									"  pm.expect(body.cab.carType).to.eql(\"HATCHBACK\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "B3 End ride at 7 km and verify fare",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{happyRideId}}/end",
+						"description": "Ends the happy-path ride. Expected 200. Fields: rideId, status COMPLETED, distanceKm 7, surgeMultiplier 1.00, originalFare, discountAmount 0.00, finalFare. The pre-surge 7 km hatchback fare is Rs 54.00 (2 km x 10 + 3 km x 8 + 2 km x 5). The test multiplies that base by the returned surge multiplier. At 1.00 the original and final fare stay 54.00.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1\", function () {",
+									"  pm.expect(surge).to.eql(1);",
+									"});",
+									"const baseCents = 5400;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 0) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 7)).to.be.below(0.000001);",
+									"});",
+									"remember(\"happyFinalFare\", pm.response.json().finalFare);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "B4 Get user ride history",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/users/{{userAId}}/rides",
+						"description": "Expected 200, newest ride first. The happy-path ride is COMPLETED, distanceKm is 7, and finalFare matches the fare just returned. Ongoing rides would show null distanceKm and finalFare."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const rides = pm.response.json();",
+									"const ride = rides.find((item) => item.rideId === Number(pm.collectionVariables.get(\"happyRideId\")));",
+									"pm.test(\"user history contains the completed ride\", function () {",
+									"  pm.expect(ride).to.be.an(\"object\");",
+									"  pm.expect(ride.userId).to.eql(Number(pm.collectionVariables.get(\"userAId\")));",
+									"  pm.expect(ride.driverId).to.eql(Number(pm.collectionVariables.get(\"hatchbackDriverId\")));",
+									"  pm.expect(ride.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(ride.requestedCarType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(ride.distanceKm).to.eql(7);",
+									"  pm.expect(Number(ride.finalFare)).to.eql(Number(pm.collectionVariables.get(\"happyFinalFare\")));",
+									"  pm.expect(rides[0].rideId).to.eql(ride.rideId);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "B5 Get driver ride history",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/drivers/{{hatchbackDriverId}}/rides",
+						"description": "Expected 200, newest ride first. The same completed ride is listed for the hatchback driver."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const rides = pm.response.json();",
+									"const ride = rides.find((item) => item.rideId === Number(pm.collectionVariables.get(\"happyRideId\")));",
+									"pm.test(\"driver history contains the completed ride\", function () {",
+									"  pm.expect(ride).to.be.an(\"object\");",
+									"  pm.expect(ride.driverId).to.eql(Number(pm.collectionVariables.get(\"hatchbackDriverId\")));",
+									"  pm.expect(ride.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(ride.distanceKm).to.eql(7);",
+									"  pm.expect(Number(ride.finalFare)).to.eql(Number(pm.collectionVariables.get(\"happyFinalFare\")));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "B6 Verify driver is available again",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/drivers/{{hatchbackDriverId}}",
+						"description": "Expected 200. available is true after the ride is completed."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"driver is available\", function () {",
+									"  pm.expect(pm.response.json().available).to.eql(true);",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "C. MANDATORY EDGE CASES",
+			"description": "Run after folder B on the same process. C7 releases the hatchback before the minimum-fare and upgrade steps. C9 and C12 move cabs to fresh areas so those fares are calculated at surge 1.00. Do not reuse 12.9716, 77.5946 for a fare check: earlier bookings in that area are still inside the 5-minute window.",
+			"item": [
+				{
+					"name": "C1 No driver within radius",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Meera requests a hatchback at 0, 0. No cab is within 5 km. Expected 409 and message No eligible driver found. The attempt is counted as surge demand at 0, 0. It does not affect other areas.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 0,\n  \"pickupLongitude\": 0,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 409\", function () {",
+									"  pm.response.to.have.status(409);",
+									"});",
+									"pm.test(\"no eligible driver\", function () {",
+									"  pm.expect(pm.response.json().message).to.include(\"No eligible driver\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C2 Invalid user",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Unknown user 999999. Expected 404 and message User not found: 999999. This fails before surge demand is recorded and before a driver is claimed.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": 999999,\n  \"pickupLatitude\": 12.9716,\n  \"pickupLongitude\": 77.5946,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 404\", function () {",
+									"  pm.response.to.have.status(404);",
+									"});",
+									"pm.test(\"user is missing\", function () {",
+									"  pm.expect(pm.response.json().message).to.include(\"User not found: 999999\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C3 Invalid coupon",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Asha requests a ride beside the available hatchback with coupon NOPE. Expected 400 and message Invalid coupon: NOPE. Coupon checks run before driver assignment, so nobody is claimed and this attempt is not surge demand.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 12.9716,\n  \"pickupLongitude\": 77.5946,\n  \"carType\": \"HATCHBACK\",\n  \"couponCode\": \"NOPE\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 400\", function () {",
+									"  pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"coupon is rejected\", function () {",
+									"  pm.expect(pm.response.json().message).to.include(\"Invalid coupon: NOPE\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C4 Confirm driver was not claimed",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/drivers/{{hatchbackDriverId}}",
+						"description": "Expected 200. available is still true after the invalid coupon."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"invalid coupon did not claim the driver\", function () {",
+									"  pm.expect(pm.response.json().available).to.eql(true);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C5 Hold the only nearby driver",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Asha books the only hatchback at the happy-path pickup. Expected 201 ONGOING. Stored as heldRideId. Leave this ride open for the next request.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 12.9716,\n  \"pickupLongitude\": 77.5946,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.expect(body.driverId).to.eql(Number(pm.collectionVariables.get(\"hatchbackDriverId\")));",
+									"pm.expect(body.status).to.eql(\"ONGOING\");",
+									"remember(\"heldRideId\", body.rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C6 Double-book the unavailable driver",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Meera requests the same pickup while Kiran is on the open ride. The sedan is still far away, so there is no free upgrade. Expected 409. Reset: C7 ends the held ride and makes Kiran available for the later steps.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 12.9716,\n  \"pickupLongitude\": 77.5946,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 409\", function () {",
+									"  pm.response.to.have.status(409);",
+									"});",
+									"pm.test(\"second booking is rejected\", function () {",
+									"  pm.expect(pm.response.json().message).to.include(\"No eligible driver\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C7 End the held ride",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{heldRideId}}/end",
+						"description": "Reset step. Completes the ride from C5 so the hatchback can be used again. Expected 200 and status COMPLETED. The fare is not asserted: this pickup already has earlier demand, so the multiplier may be above 1.00.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"held ride is completed\", function () {",
+									"  pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");",
+									"  pm.expect(pm.response.json().rideId).to.eql(Number(pm.collectionVariables.get(\"heldRideId\")));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C8 Complete the already completed ride",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{heldRideId}}/end",
+						"description": "Ends the same ride again. Expected 409 and message Ride already completed.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 409\", function () {",
+									"  pm.response.to.have.status(409);",
+									"});",
+									"pm.test(\"ride is already completed\", function () {",
+									"  pm.expect(pm.response.json().message).to.include(\"Ride already completed\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C9 Move hatchback to a fresh area",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{hatchbackCabId}}/location",
+						"description": "Reset step for a clean 1.00x minimum fare. Moves Kiran to 15.00, 77.60, more than 5 km from every earlier pickup. Expected 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 15,\n  \"longitude\": 77.6\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"hatchback is in the minimum-fare area\", function () {",
+									"  pm.expect(Math.abs(pm.response.json().latitude - 15)).to.be.below(0.000001);",
+									"  pm.expect(Math.abs(pm.response.json().longitude - 77.6)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C10 Book a 1 km ride",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "First request in this area with one available hatchback, so the stored multiplier will be 1.00. Expected 201. Stored as minimumFareRideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userCId}},\n  \"pickupLatitude\": 15,\n  \"pickupLongitude\": 77.6,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"pm.expect(pm.response.json().pricingCarType).to.eql(\"HATCHBACK\");",
+									"remember(\"minimumFareRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C11 End ride and verify minimum fare",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{minimumFareRideId}}/end",
+						"description": "1 km hatchback slabs are 1 x 10 = Rs 10, which is below the Rs 50.00 minimum. Expected surgeMultiplier 1.00. originalFare and finalFare are the minimum multiplied by that multiplier, with no coupon.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1\", function () {",
+									"  pm.expect(surge).to.eql(1);",
+									"});",
+									"const baseCents = 5000;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 0) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 1)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C12 Move sedan to the upgrade pickup",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{sedanCabId}}/location",
+						"description": "Reset step. Moves Neha to 16.00, 77.60. Kiran remains at 15.00, about 111 km away, so a hatchback request here can only match the sedan. Expected 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 16,\n  \"longitude\": 77.6\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"sedan is at the upgrade pickup\", function () {",
+									"  pm.expect(pm.response.json().carType).to.eql(\"SEDAN\");",
+									"  pm.expect(Math.abs(pm.response.json().latitude - 16)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C13 Book hatchback for a free sedan upgrade",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Meera requests a hatchback where the only nearby cab is a sedan. Expected 201. assignedCarType is SEDAN and pricingCarType stays HATCHBACK. driverId is the sedan. Stored as upgradeRideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 16,\n  \"pickupLongitude\": 77.6,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test(\"sedan is assigned at hatchback pricing\", function () {",
+									"  pm.expect(body.driverId).to.eql(Number(pm.collectionVariables.get(\"sedanDriverId\")));",
+									"  pm.expect(body.requestedCarType).to.eql(\"HATCHBACK\");",
+									"  pm.expect(body.assignedCarType).to.eql(\"SEDAN\");",
+									"  pm.expect(body.pricingCarType).to.eql(\"HATCHBACK\");",
+									"});",
+									"remember(\"upgradeRideId\", body.rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C14 End upgrade ride and verify hatchback pricing",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{upgradeRideId}}/end",
+						"description": "7 km is priced with the hatchback strategy because pricingCarType is HATCHBACK. The pre-surge base is Rs 54.00, not the sedan fare of Rs 82.00. This is the first request in the area with one driver, so surgeMultiplier is 1.00. The test multiplies 54.00 by the returned multiplier.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1\", function () {",
+									"  pm.expect(surge).to.eql(1);",
+									"});",
+									"const baseCents = 5400;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 0) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 7)).to.be.below(0.000001);",
+									"});",
+									"pm.test(\"fare is not the sedan 7 km fare\", function () {",
+									"  pm.expect(Number(pm.response.json().finalFare)).to.be.below(82);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C15 Delete coupon SAVE20",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": "{{baseUrl}}/coupons/SAVE20",
+						"description": "Expected 204 and an empty body. Deleting a missing coupon returns 404. Restart the app before creating SAVE20 again."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 204\", function () {",
+									"  pm.response.to.have.status(204);",
+									"});",
+									"pm.test(\"delete has no body\", function () {",
+									"  pm.expect(pm.response.text()).to.eql(\"\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "C16 Book with the deleted coupon",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Ravi requests a ride beside the available hatchback using SAVE20. Expected 400 Invalid coupon: SAVE20. The driver is not claimed. A coupon already snapshotted onto an earlier ride would still apply at completion; this request has no snapshot because the code is gone.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userCId}},\n  \"pickupLatitude\": 15,\n  \"pickupLongitude\": 77.6,\n  \"carType\": \"HATCHBACK\",\n  \"couponCode\": \"SAVE20\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 400\", function () {",
+									"  pm.response.to.have.status(400);",
+									"});",
+									"pm.test(\"deleted coupon is rejected\", function () {",
+									"  pm.expect(pm.response.json().message).to.include(\"Invalid coupon: SAVE20\");",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "D. BONUS DEMO",
+			"description": "Restart the app and run folders A-C first if this process has already used latitudes 20, 22, 24, or 26 within the last 5 minutes. Each band has one hatchback and a pickup that has not been used in this process. Demand includes every successful booking in the window. The shown multiplier is the one stored at booking. Ending the ride does not recalculate it. Sequential requests cannot demonstrate the booking race; use D28.",
+			"item": [
+				{
+					"name": "D1 Move hatchback to the normal-demand area",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{hatchbackCabId}}/location",
+						"description": "Reset step. Moves Kiran to 20.00, 80.00. No earlier request used this area. Expected 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 20,\n  \"longitude\": 80\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(Math.abs(pm.response.json().latitude - 20)).to.be.below(0.000001);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D2 Book at normal demand",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "First request here. Demand 1, supply 1, ratio 1, multiplier 1.00. Expected 201. Stored as surge100RideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 20,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surge100RideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D3 End ride and verify 1.00x",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surge100RideId}}/end",
+						"description": "7 km hatchback base before surge is Rs 54.00. Expected surgeMultiplier 1.00. originalFare and finalFare equal that base multiplied by the returned multiplier, rounded to 2 decimals, with no coupon.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1\", function () {",
+									"  pm.expect(surge).to.eql(1);",
+									"});",
+									"const baseCents = 5400;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 0) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 7)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D4 Move hatchback to the medium-demand area",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{hatchbackCabId}}/location",
+						"description": "Reset step. Moves Kiran to 22.00, 80.00, a new 5 km area. Expected 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 22,\n  \"longitude\": 80\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(Math.abs(pm.response.json().latitude - 22)).to.be.below(0.000001);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D5 Record the first request in this area",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 22,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D6 End the priming ride",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D7 Book at medium demand",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Second request within 5 minutes. Demand 2, supply 1, ratio 2, multiplier 1.25. Expected 201. Stored as surge125RideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 22,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surge125RideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D8 End ride and verify 1.25x",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surge125RideId}}/end",
+						"description": "Expected surgeMultiplier 1.25. The 7 km hatchback base is Rs 54.00 before surge. originalFare and finalFare are that base multiplied by the returned multiplier. The test does not hardcode the surged rupee amount. The driver is unavailable while this ride is open; the fare still uses 1.25 because surge is not recalculated at completion.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1.25\", function () {",
+									"  pm.expect(surge).to.eql(1.25);",
+									"});",
+									"const baseCents = 5400;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 0) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 7)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D9 Move hatchback to the high-demand area",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{hatchbackCabId}}/location",
+						"description": "Reset step. Moves Kiran to 24.00, 80.00. Expected 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 24,\n  \"longitude\": 80\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(Math.abs(pm.response.json().latitude - 24)).to.be.below(0.000001);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D10 Record request 1 of 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userCId}},\n  \"pickupLatitude\": 24,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D11 End request 1",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D12 Record request 2 of 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userCId}},\n  \"pickupLatitude\": 24,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D13 End request 2",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D14 Record request 3 of 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userCId}},\n  \"pickupLatitude\": 24,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D15 End request 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D16 Book at high demand",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Fourth request within 5 minutes. Demand 4, supply 1, ratio 4, multiplier 1.50. Expected 201. Stored as surge150RideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 24,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surge150RideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D17 End ride and verify 1.50x",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surge150RideId}}/end",
+						"description": "Expected surgeMultiplier 1.50. originalFare and finalFare are the Rs 54.00 hatchback base multiplied by the returned multiplier, with no coupon.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 7\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1.5\", function () {",
+									"  pm.expect(surge).to.eql(1.5);",
+									"});",
+									"const baseCents = 5400;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 0) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 7)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D18 Create coupon SURGE20",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/coupons",
+						"description": "SAVE20 was deleted in C15. This separate 20 percent coupon is used only for the surge combination. Expected 201 and code SURGE20.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"code\": \"SURGE20\",\n  \"discountPercentage\": 20\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"pm.expect(pm.response.json().code).to.eql(\"SURGE20\");",
+									"pm.expect(Number(pm.response.json().discountPercentage)).to.eql(20);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D19 Move hatchback to the coupon area",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/cabs/{{hatchbackCabId}}/location",
+						"description": "Reset step. Moves Kiran to 26.00, 80.00 so the 1.50x demand count starts at zero. Expected 200.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": 26,\n  \"longitude\": 80\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(Math.abs(pm.response.json().latitude - 26)).to.be.below(0.000001);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D20 Record request 1 of 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 26,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D21 End request 1",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D22 Record request 2 of 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 26,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D23 End request 2",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D24 Record request 3 of 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Priming request. It records demand in this otherwise empty area and is ended immediately so the single hatchback is available again. Expected 201. Its fare is not the band being demonstrated.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userBId}},\n  \"pickupLatitude\": 26,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgePrimeRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D25 End request 3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgePrimeRideId}}/end",
+						"description": "Ends the priming ride. Expected 200. This releases the driver. The multiplier on this priming ride is whatever the demand count was at booking time and is not asserted.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.expect(pm.response.json().status).to.eql(\"COMPLETED\");"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D26 Book with SURGE20 at high demand",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/book",
+						"description": "Fourth request. Demand 4, supply 1, multiplier 1.50. The coupon is snapshotted onto the ride. Expected 201. Stored as surgeCouponRideId.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userAId}},\n  \"pickupLatitude\": 26,\n  \"pickupLongitude\": 80,\n  \"carType\": \"HATCHBACK\",\n  \"couponCode\": \"SURGE20\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function remember(key, value) {",
+									"  const stored = String(value);",
+									"  pm.collectionVariables.set(key, stored);",
+									"  try { pm.environment.set(key, stored); } catch (error) {}",
+									"}",
+									"pm.test(\"status is 201\", function () {",
+									"  pm.response.to.have.status(201);",
+									"});",
+									"remember(\"surgeCouponRideId\", pm.response.json().rideId);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D27 End ride and verify surge plus coupon",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/rides/{{surgeCouponRideId}}/end",
+						"description": "Distance 16.2 km has hatchback slabs 2 x 10 + 3 x 8 + 11.2 x 5 = Rs 100.00 before surge. Expected surgeMultiplier 1.50. originalFare is 100.00 times that multiplier. A 20 percent coupon is applied after surge. Worked example at 1.50: original Rs 150.00, discount Rs 30.00, final Rs 120.00. The test calculates those amounts from the returned multiplier instead of assuming them.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"distanceKm\": 16.2\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"const surge = Number(body.surgeMultiplier);",
+									"pm.test(\"surge multiplier is 1.5\", function () {",
+									"  pm.expect(surge).to.eql(1.5);",
+									"});",
+									"const baseCents = 10000;",
+									"const originalCents = Math.round(baseCents * surge);",
+									"const finalCents = Math.round(originalCents * (100 - 20) / 100);",
+									"const discountCents = originalCents - finalCents;",
+									"function cents(value) { return Math.round(Number(value) * 100); }",
+									"pm.test(\"money follows tiered fare, stored surge, then coupon\", function () {",
+									"  pm.expect(cents(body.originalFare)).to.eql(originalCents);",
+									"  pm.expect(cents(body.discountAmount)).to.eql(discountCents);",
+									"  pm.expect(cents(body.finalFare)).to.eql(finalCents);",
+									"  pm.expect(body.status).to.eql(\"COMPLETED\");",
+									"  pm.expect(Math.abs(Number(body.distanceKm) - 16.2)).to.be.below(0.000001);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "D28 Concurrency safety — run the integration test",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/health",
+						"description": "This call only checks that the application is up. Two sequential Postman bookings are not a concurrency demonstration, because the second call starts after the first claim has committed.\n\nFrom the project root run:\n\n.\\mvnw.cmd -Dtest=ConcurrentRideBookingTest test\n\nThe test uses its own process and does not call this server. It starts two booking requests together against one available driver. Expected result: exactly one 201, exactly one 409, the driver left unavailable, and exactly one ongoing ride. The claim is a conditional database update: UPDATE driver SET available = false WHERE id = ? AND available = true. Only the transaction that updates one row wins."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"status is 200\", function () {",
+									"  pm.response.to.have.status(200);",
+									"});",
+									"pm.test(\"app is up; run ConcurrentRideBookingTest for the race\", function () {",
+									"  pm.expect(pm.response.json().status).to.eql(\"UP\");",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		}
+	]
+}
