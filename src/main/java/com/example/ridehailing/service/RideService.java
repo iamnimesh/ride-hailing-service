@@ -1,5 +1,6 @@
 package com.example.ridehailing.service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -8,14 +9,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.ridehailing.dto.BookRideRequest;
+import com.example.ridehailing.dto.EndRideRequest;
+import com.example.ridehailing.dto.EndRideResponse;
 import com.example.ridehailing.dto.RideBookingResponse;
 import com.example.ridehailing.entity.Cab;
 import com.example.ridehailing.entity.CarType;
 import com.example.ridehailing.entity.Driver;
 import com.example.ridehailing.entity.Ride;
+import com.example.ridehailing.entity.RideStatus;
 import com.example.ridehailing.entity.User;
+import com.example.ridehailing.exception.InvalidDistanceException;
 import com.example.ridehailing.exception.NoEligibleDriverException;
 import com.example.ridehailing.exception.ResourceNotFoundException;
+import com.example.ridehailing.exception.RideAlreadyCompletedException;
 import com.example.ridehailing.repository.DriverRepository;
 import com.example.ridehailing.repository.RideRepository;
 import com.example.ridehailing.repository.UserRepository;
@@ -26,13 +32,15 @@ public class RideService {
 	private final UserRepository userRepository;
 	private final DriverRepository driverRepository;
 	private final RideRepository rideRepository;
+	private final PricingService pricingService;
 	private final double searchRadiusKm;
 
 	public RideService(UserRepository userRepository, DriverRepository driverRepository, RideRepository rideRepository,
-			@Value("${ride.matching.radius-km:5}") double searchRadiusKm) {
+			PricingService pricingService, @Value("${ride.matching.radius-km:5}") double searchRadiusKm) {
 		this.userRepository = userRepository;
 		this.driverRepository = driverRepository;
 		this.rideRepository = rideRepository;
+		this.pricingService = pricingService;
 		this.searchRadiusKm = searchRadiusKm;
 	}
 
@@ -49,6 +57,27 @@ public class RideService {
 		Ride ride = new Ride(user, driver, cab, requestedCarType, cab.getCarType(), requestedCarType,
 				request.pickupLatitude(), request.pickupLongitude());
 		return RideBookingResponse.from(rideRepository.save(ride));
+	}
+
+	@Transactional
+	public EndRideResponse end(Long rideId, EndRideRequest request) {
+		validateDistance(request.distanceKm());
+		Ride ride = rideRepository.findById(rideId)
+				.orElseThrow(() -> new ResourceNotFoundException("Ride not found: " + rideId));
+		if (ride.getStatus() != RideStatus.ONGOING) {
+			throw new RideAlreadyCompletedException("Ride already completed: " + rideId);
+		}
+
+		BigDecimal fare = pricingService.calculateFare(ride.getPricingCarType(), BigDecimal.valueOf(request.distanceKm()));
+		ride.complete(request.distanceKm(), fare);
+		ride.getDriver().markAvailable();
+		return EndRideResponse.from(ride);
+	}
+
+	private void validateDistance(Double distanceKm) {
+		if (distanceKm == null || !Double.isFinite(distanceKm) || distanceKm < 0) {
+			throw new InvalidDistanceException("Distance must be a non-negative finite number");
+		}
 	}
 
 	private Driver selectDriver(double pickupLatitude, double pickupLongitude, CarType requestedCarType) {

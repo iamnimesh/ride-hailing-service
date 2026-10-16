@@ -58,6 +58,10 @@ public class Driver {
 		this.available = false;
 	}
 
+	public void markAvailable() {
+		this.available = true;
+	}
+
 	public Cab getCab() {
 		return cab;
 	}

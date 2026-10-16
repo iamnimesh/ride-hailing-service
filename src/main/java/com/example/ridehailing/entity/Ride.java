@@ -1,5 +1,7 @@
 package com.example.ridehailing.entity;
 
+import java.math.BigDecimal;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -56,7 +58,8 @@ public class Ride {
 
 	private Double distanceKm;
 
-	private Double finalFare;
+	@Column(precision = 12, scale = 2)
+	private BigDecimal finalFare;
 
 	protected Ride() {
 	}
@@ -118,8 +121,14 @@ public class Ride {
 		return distanceKm;
 	}
 
-	public Double getFinalFare() {
+	public BigDecimal getFinalFare() {
 		return finalFare;
+	}
+
+	public void complete(double distanceKm, BigDecimal finalFare) {
+		this.distanceKm = distanceKm;
+		this.finalFare = finalFare;
+		this.status = RideStatus.COMPLETED;
 	}
 
 }

@@ -24,6 +24,16 @@ public class ApiExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(exception.getMessage()));
 	}
 
+	@ExceptionHandler(RideAlreadyCompletedException.class)
+	public ResponseEntity<ErrorResponse> alreadyCompleted(RideAlreadyCompletedException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidDistanceException.class)
+	public ResponseEntity<ErrorResponse> invalidDistance(InvalidDistanceException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse(exception.getMessage()));
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<ErrorResponse> invalid(MethodArgumentNotValidException exception) {
 		String message = exception.getBindingResult().getFieldErrors().stream()
