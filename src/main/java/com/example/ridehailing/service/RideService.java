@@ -25,6 +25,8 @@ import com.example.ridehailing.exception.InvalidDistanceException;
 import com.example.ridehailing.exception.NoEligibleDriverException;
 import com.example.ridehailing.exception.ResourceNotFoundException;
 import com.example.ridehailing.exception.RideAlreadyCompletedException;
+import com.example.ridehailing.pricing.SurgeMultiplierProvider;
+import com.example.ridehailing.pricing.SurgeSnapshot;
 import com.example.ridehailing.repository.DriverRepository;
 import com.example.ridehailing.repository.RideRepository;
 import com.example.ridehailing.repository.UserRepository;
@@ -39,16 +41,18 @@ public class RideService {
 	private final RideRepository rideRepository;
 	private final PricingService pricingService;
 	private final CouponService couponService;
+	private final SurgeMultiplierProvider surgeMultiplierProvider;
 	private final double searchRadiusKm;
 
 	public RideService(UserRepository userRepository, DriverRepository driverRepository, RideRepository rideRepository,
-			PricingService pricingService, CouponService couponService,
+			PricingService pricingService, CouponService couponService, SurgeMultiplierProvider surgeMultiplierProvider,
 			@Value("${ride.matching.radius-km:5}") double searchRadiusKm) {
 		this.userRepository = userRepository;
 		this.driverRepository = driverRepository;
 		this.rideRepository = rideRepository;
 		this.pricingService = pricingService;
 		this.couponService = couponService;
+		this.surgeMultiplierProvider = surgeMultiplierProvider;
 		this.searchRadiusKm = searchRadiusKm;
 	}
 
@@ -58,7 +62,10 @@ public class RideService {
 		User user = userRepository.findById(request.userId())
 				.orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.userId()));
 
-		Driver driver = claimDriver(request.pickupLatitude(), request.pickupLongitude(), request.carType());
+		List<NearbyDriver> nearby = findNearby(request.pickupLatitude(), request.pickupLongitude());
+		SurgeSnapshot surge = surgeMultiplierProvider.quote(request.pickupLatitude(), request.pickupLongitude(),
+				nearby.size());
+		Driver driver = claimDriver(nearby, request.carType());
 		User bookedUser = userRepository.findById(user.getId())
 				.orElseThrow(() -> new ResourceNotFoundException("User not found: " + user.getId()));
 		Cab cab = driver.getCab();
@@ -66,6 +73,7 @@ public class RideService {
 		CarType requestedCarType = request.carType();
 		Ride ride = new Ride(bookedUser, driver, cab, requestedCarType, cab.getCarType(), requestedCarType,
 				request.pickupLatitude(), request.pickupLongitude());
+		ride.applySurge(surge.multiplier());
 		if (coupon != null) {
 			ride.applyCoupon(coupon.getCode(), coupon.getDiscountPercentage());
 		}
@@ -81,9 +89,10 @@ public class RideService {
 			throw new RideAlreadyCompletedException("Ride already completed: " + rideId);
 		}
 
-		BigDecimal originalFare = pricingService.calculateFare(ride.getPricingCarType(),
+		BigDecimal baseFare = pricingService.calculateFare(ride.getPricingCarType(),
 				BigDecimal.valueOf(request.distanceKm()));
-		DiscountedFare discountedFare = applyDiscount(originalFare, ride.getDiscountPercentage());
+		BigDecimal surgedFare = baseFare.multiply(ride.getSurgeMultiplier()).setScale(2, RoundingMode.HALF_UP);
+		DiscountedFare discountedFare = applyDiscount(surgedFare, ride.getDiscountPercentage());
 		ride.complete(request.distanceKm(), discountedFare.finalFare());
 		ride.getDriver().markAvailable();
 		return EndRideResponse.from(ride, discountedFare.originalFare(), discountedFare.discountAmount());
@@ -128,8 +137,7 @@ public class RideService {
 		}
 	}
 
-	private Driver claimDriver(double pickupLatitude, double pickupLongitude, CarType requestedCarType) {
-		List<NearbyDriver> nearby = findNearby(pickupLatitude, pickupLongitude);
+	private Driver claimDriver(List<NearbyDriver> nearby, CarType requestedCarType) {
 		List<NearbyDriver> candidates = new ArrayList<>();
 		candidates.addAll(ofType(nearby, requestedCarType));
 		if (requestedCarType == CarType.HATCHBACK) {

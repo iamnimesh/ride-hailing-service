@@ -66,6 +66,9 @@ public class Ride {
 	@Column(precision = 5, scale = 2)
 	private BigDecimal discountPercentage;
 
+	@Column(nullable = false, precision = 4, scale = 2)
+	private BigDecimal surgeMultiplier;
+
 	protected Ride() {
 	}
 
@@ -80,6 +83,7 @@ public class Ride {
 		this.pickupLatitude = pickupLatitude;
 		this.pickupLongitude = pickupLongitude;
 		this.status = RideStatus.ONGOING;
+		this.surgeMultiplier = new BigDecimal("1.00");
 	}
 
 	public Long getId() {
@@ -136,6 +140,14 @@ public class Ride {
 
 	public BigDecimal getDiscountPercentage() {
 		return discountPercentage;
+	}
+
+	public BigDecimal getSurgeMultiplier() {
+		return surgeMultiplier;
+	}
+
+	public void applySurge(BigDecimal surgeMultiplier) {
+		this.surgeMultiplier = surgeMultiplier;
 	}
 
 	public void applyCoupon(String couponCode, BigDecimal discountPercentage) {

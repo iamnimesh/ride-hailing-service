@@ -27,7 +27,6 @@ public class DriverService {
 		return DriverResponse.from(driverRepository.save(driver));
 	}
 
-	@Transactional(readOnly = true)
 	public DriverResponse getById(Long id) {
 		return driverRepository.findById(id)
 				.map(DriverResponse::from)

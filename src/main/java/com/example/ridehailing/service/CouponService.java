@@ -39,7 +39,6 @@ public class CouponService {
 		couponRepository.delete(coupon);
 	}
 
-	@Transactional(readOnly = true)
 	public Coupon findForBooking(String couponCode) {
 		if (couponCode == null || couponCode.isBlank()) {
 			return null;

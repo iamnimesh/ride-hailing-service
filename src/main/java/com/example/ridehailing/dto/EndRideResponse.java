@@ -9,6 +9,7 @@ public record EndRideResponse(
 		Long rideId,
 		RideStatus status,
 		Double distanceKm,
+		BigDecimal surgeMultiplier,
 		BigDecimal originalFare,
 		BigDecimal discountAmount,
 		BigDecimal finalFare
@@ -19,6 +20,7 @@ public record EndRideResponse(
 				ride.getId(),
 				ride.getStatus(),
 				ride.getDistanceKm(),
+				ride.getSurgeMultiplier(),
 				originalFare,
 				discountAmount,
 				ride.getFinalFare());
