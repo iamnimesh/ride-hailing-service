@@ -5,10 +5,23 @@ import java.math.BigDecimal;
 import com.example.ridehailing.entity.Ride;
 import com.example.ridehailing.entity.RideStatus;
 
-public record EndRideResponse(Long rideId, RideStatus status, Double distanceKm, BigDecimal finalFare) {
+public record EndRideResponse(
+		Long rideId,
+		RideStatus status,
+		Double distanceKm,
+		BigDecimal originalFare,
+		BigDecimal discountAmount,
+		BigDecimal finalFare
+) {
 
-	public static EndRideResponse from(Ride ride) {
-		return new EndRideResponse(ride.getId(), ride.getStatus(), ride.getDistanceKm(), ride.getFinalFare());
+	public static EndRideResponse from(Ride ride, BigDecimal originalFare, BigDecimal discountAmount) {
+		return new EndRideResponse(
+				ride.getId(),
+				ride.getStatus(),
+				ride.getDistanceKm(),
+				originalFare,
+				discountAmount,
+				ride.getFinalFare());
 	}
 
 }

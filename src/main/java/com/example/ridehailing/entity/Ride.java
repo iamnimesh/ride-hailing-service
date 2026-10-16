@@ -61,6 +61,11 @@ public class Ride {
 	@Column(precision = 12, scale = 2)
 	private BigDecimal finalFare;
 
+	private String couponCode;
+
+	@Column(precision = 5, scale = 2)
+	private BigDecimal discountPercentage;
+
 	protected Ride() {
 	}
 
@@ -123,6 +128,19 @@ public class Ride {
 
 	public BigDecimal getFinalFare() {
 		return finalFare;
+	}
+
+	public String getCouponCode() {
+		return couponCode;
+	}
+
+	public BigDecimal getDiscountPercentage() {
+		return discountPercentage;
+	}
+
+	public void applyCoupon(String couponCode, BigDecimal discountPercentage) {
+		this.couponCode = couponCode;
+		this.discountPercentage = discountPercentage;
 	}
 
 	public void complete(double distanceKm, BigDecimal finalFare) {
