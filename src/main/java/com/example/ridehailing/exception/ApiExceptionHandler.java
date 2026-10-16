@@ -19,6 +19,11 @@ public class ApiExceptionHandler {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(exception.getMessage()));
 	}
 
+	@ExceptionHandler(NoEligibleDriverException.class)
+	public ResponseEntity<ErrorResponse> noEligibleDriver(NoEligibleDriverException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(exception.getMessage()));
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<ErrorResponse> invalid(MethodArgumentNotValidException exception) {
 		String message = exception.getBindingResult().getFieldErrors().stream()
