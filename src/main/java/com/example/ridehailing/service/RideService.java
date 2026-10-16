@@ -58,12 +58,13 @@ public class RideService {
 		User user = userRepository.findById(request.userId())
 				.orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.userId()));
 
-		Driver driver = selectDriver(request.pickupLatitude(), request.pickupLongitude(), request.carType());
+		Driver driver = claimDriver(request.pickupLatitude(), request.pickupLongitude(), request.carType());
+		User bookedUser = userRepository.findById(user.getId())
+				.orElseThrow(() -> new ResourceNotFoundException("User not found: " + user.getId()));
 		Cab cab = driver.getCab();
-		driver.markUnavailable();
 
 		CarType requestedCarType = request.carType();
-		Ride ride = new Ride(user, driver, cab, requestedCarType, cab.getCarType(), requestedCarType,
+		Ride ride = new Ride(bookedUser, driver, cab, requestedCarType, cab.getCarType(), requestedCarType,
 				request.pickupLatitude(), request.pickupLongitude());
 		if (coupon != null) {
 			ride.applyCoupon(coupon.getCode(), coupon.getDiscountPercentage());
@@ -127,7 +128,25 @@ public class RideService {
 		}
 	}
 
-	private Driver selectDriver(double pickupLatitude, double pickupLongitude, CarType requestedCarType) {
+	private Driver claimDriver(double pickupLatitude, double pickupLongitude, CarType requestedCarType) {
+		List<NearbyDriver> nearby = findNearby(pickupLatitude, pickupLongitude);
+		List<NearbyDriver> candidates = new ArrayList<>();
+		candidates.addAll(ofType(nearby, requestedCarType));
+		if (requestedCarType == CarType.HATCHBACK) {
+			candidates.addAll(ofType(nearby, CarType.SEDAN));
+		}
+
+		for (NearbyDriver candidate : candidates) {
+			Long driverId = candidate.driver().getId();
+			if (driverRepository.claimIfAvailable(driverId) == 1) {
+				return driverRepository.findById(driverId)
+						.orElseThrow(() -> new NoEligibleDriverException("No eligible driver found"));
+			}
+		}
+		throw new NoEligibleDriverException("No eligible driver found");
+	}
+
+	private List<NearbyDriver> findNearby(double pickupLatitude, double pickupLongitude) {
 		List<NearbyDriver> nearby = new ArrayList<>();
 		for (Driver driver : driverRepository.findByAvailableTrue()) {
 			Cab cab = driver.getCab();
@@ -140,39 +159,24 @@ public class RideService {
 				nearby.add(new NearbyDriver(driver, distanceKm));
 			}
 		}
-
-		Driver matched = nearest(nearby, requestedCarType);
-		if (matched != null) {
-			return matched;
-		}
-		if (requestedCarType == CarType.HATCHBACK) {
-			Driver upgrade = nearest(nearby, CarType.SEDAN);
-			if (upgrade != null) {
-				return upgrade;
-			}
-		}
-		throw new NoEligibleDriverException("No eligible driver found");
+		return nearby;
 	}
 
-	private Driver nearest(List<NearbyDriver> nearby, CarType carType) {
-		NearbyDriver best = null;
+	private List<NearbyDriver> ofType(List<NearbyDriver> nearby, CarType carType) {
+		List<NearbyDriver> matches = new ArrayList<>();
 		for (NearbyDriver candidate : nearby) {
-			if (candidate.driver().getCab().getCarType() != carType) {
-				continue;
-			}
-			if (best == null || isCloser(candidate, best)) {
-				best = candidate;
+			if (candidate.driver().getCab().getCarType() == carType) {
+				matches.add(candidate);
 			}
 		}
-		return best == null ? null : best.driver();
-	}
-
-	private boolean isCloser(NearbyDriver candidate, NearbyDriver current) {
-		int byDistance = Double.compare(candidate.distanceKm(), current.distanceKm());
-		if (byDistance != 0) {
-			return byDistance < 0;
-		}
-		return candidate.driver().getId() < current.driver().getId();
+		matches.sort((left, right) -> {
+			int byDistance = Double.compare(left.distanceKm(), right.distanceKm());
+			if (byDistance != 0) {
+				return byDistance;
+			}
+			return Long.compare(left.driver().getId(), right.driver().getId());
+		});
+		return matches;
 	}
 
 	private record NearbyDriver(Driver driver, double distanceKm) {
